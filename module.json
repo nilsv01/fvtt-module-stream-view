@@ -1,7 +1,7 @@
 {
-  "id": "stream-view",
-  "name": "stream-view",
-  "title": "Stream View",
+  "id": "fvtt-module-stream-view",
+  "name": "FVTT-module-stream-view",
+  "title": "Stream-View",
   "description": "This module provides a minimal UI view with automated camera work, ideal for streaming or recording games.",
   "authors": [
     {
