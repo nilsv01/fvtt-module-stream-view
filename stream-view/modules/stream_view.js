@@ -22,8 +22,8 @@ class StreamView {
 			if (!game.settings.get('stream-view', 'show-scene-navigation')) {
 				this.hideHtml(html);
 			}
-			instance.updateScene();
 		});
+		Hooks.on('canvasReady', () => instance.updateScene());
 		Hooks.on('renderPlayerList', (_app, html) => {
 			if (!game.settings.get('stream-view', 'show-player-list')) {
 				this.hideHtml(html);
@@ -43,7 +43,7 @@ class StreamView {
 		Hooks.on('renderUserConfig', (app, html) => instance._handlePopout(app, html));
 		Hooks.on('drawToken', (token) => instance._handleDrawToken(token));
 		Hooks.on('updateToken', (doc) => instance._handleUpdateToken(doc));
-		Hooks.on('destroyToken', (doc) => instance._handleDestroyToken(doc));
+		Hooks.on('deleteToken', (doc) => instance._handleDeleteToken(doc));
 		Hooks.once('ready', () => instance.ready());
 	}
 
@@ -497,7 +497,7 @@ class StreamView {
 			default: false,
 			type: Boolean,
 		});
-	
+
 		// Keybinds
 		game.keybindings.register('stream-view', 'camera-mode-toggle', {
 			name: game.i18n.localize('stream-view.controls.toggle-camera-mode'),
@@ -516,13 +516,6 @@ class StreamView {
 		game.keybindings.register('stream-view', 'token-tracked-clear', {
 			name: game.i18n.localize('stream-view.controls.token-tracked-clear'),
 			onDown: () => instance._clearTrackedTokens(),
-			restricted: true,
-			precedence: CONST.KEYBINDING_PRECEDENCE.NORMAL,
-		});
-
-		game.keybindings.register('stream-view', 'toggle-foreground-layer', {
-			name: game.i18n.localize('stream-view.controls.toggle-foreground-layer'),
-			onDown: () => instance._sendToggleForeground(!this._foregroundStatus),
 			restricted: true,
 			precedence: CONST.KEYBINDING_PRECEDENCE.NORMAL,
 		});
@@ -634,7 +627,6 @@ class StreamView {
 		this._sceneId = null;
 		this._debounceAnimateTo = foundry.utils.debounce(this.animateTo.bind(this), 100);
 		this._notesStatus = false;
-		this._foregroundStatus = false;
 		this._trackedTokens = {};
 	}
 
@@ -1022,14 +1014,6 @@ class StreamView {
 					onClick: () => this._toggleCameraMode(),
 				},
 				{
-					name: "foreground",
-					title: "stream-view.controls.toggle-foreground-layer",
-					icon: "fas fa-home",
-					toggle: true,
-					active: this._foregroundStatus,
-					onClick: () => this._sendToggleForeground(!this._foregroundStatus),
-				},
-				{
 					name: "toggle",
 					title: "CONTROLS.NoteToggle",
 					icon: "fas fa-map-pin",
@@ -1070,18 +1054,6 @@ class StreamView {
 		ui.notifications.info('Stream View popouts closed');
 	}
 
-	async _sendGetForegroundStatus() {
-		try {
-			const fgStatus = await this._socket.executeAsUser(
-				'getForegroundStatus',
-				game.settings.get('stream-view', 'user-id')
-			);
-			this._foregroundStatus = fgStatus;
-		} catch {
-			return;
-		}
-	}
-
 	async _sendGetNotesStatus() {
 		try {
 			this._notesStatus = await this._socket.executeAsUser(
@@ -1093,26 +1065,8 @@ class StreamView {
 		}
 	}
 
-	_getForegroundStatus() {
-		// TODO: Remove alpha check if foundry is updated to correctly reflect the layer status for non-GM users.
-		return (canvas.foreground?._active ?? false) || canvas.foreground?.alpha == 1
-	}
-
 	_getNotesStatus() {
 		return game.settings.get("core", NotesLayer.TOGGLE_SETTING)
-	}
-
-	async _sendToggleForeground(toggled) {
-		try {
-			this._foregroundStatus = await this._socket.executeAsUser(
-				'toggleForeground',
-				game.settings.get('stream-view', 'user-id'),
-				toggled
-			);
-		} catch (e) {
-			ui.notifications.warn(`Could not toggle Stream View foreground status (user not connected?)`);
-			return;
-		}
 	}
 
 	async _sendToggleNotes(toggled) {
@@ -1128,16 +1082,11 @@ class StreamView {
 		}
 	}
 
-	_toggleForeground(toggled) {
-		canvas[toggled ? "foreground" : "background"].activate()
-		return this._getForegroundStatus()
-	}
-
 	_toggleNotes(toggled) {
 		const currentLayer = canvas.activeLayer.options.name;
-		canvas.activateLayer(NotesLayer.layerOptions.name);
+		canvas[NotesLayer.layerOptions.name]?.activate();
 		game.settings.set("core", NotesLayer.TOGGLE_SETTING, toggled)
-		canvas.activateLayer(currentLayer);
+		canvas[currentLayer].activate();
 		return this._getNotesStatus()
 	}
 
@@ -1226,7 +1175,9 @@ class StreamView {
 
 		if (game.user.isGM) {
 			const token = game.canvas.tokens.get(doc.id);
-			this._toggleTokenTrackedIcon(token, this._tokenDocumentHasTracking(doc));
+			if (token) {
+				this._toggleTokenTrackedIcon(token, this._tokenDocumentHasTracking(doc));
+			}
 		}
 
 		if (this._tokenDocumentHasTracking(doc)) {
@@ -1240,14 +1191,13 @@ class StreamView {
 		}
 	}
 
-	_handleDestroyToken(token) {
+	_handleDeleteToken(token) {
 		if (!StreamView.isStreamUser && !game.user?.isGM) {
 			return;
 		}
 
-		if (game.user?.isGM) {
-			this._toggleTokenTracking(token, false);
-		} else if (StreamView.isStreamUser) {
+		this._trackedTokens[this._sceneId].delete(token.id);
+		if (StreamView.isStreamUser) {
 			this.focusUpdate();
 		}
 	}
@@ -1261,6 +1211,7 @@ class StreamView {
 			return;
 		}
 
+		this._handleDrawToken(token);
 		token._streamViewContainer.removeChildren().forEach((c) => c.destroy());
 		if (active) {
 			const w = Math.round(canvas.dimensions.size / 2 / 4) * 2;
@@ -1433,7 +1384,6 @@ class StreamView {
 	_socketConnected(userId) {
 		if (userId == game.settings.get('stream-view', 'user-id')) {
 			this._sendGetNotesStatus();
-			this._sendGetForegroundStatus();
 		}
 	}
 
@@ -1444,9 +1394,7 @@ class StreamView {
 		socket.register('setCameraMode', this._setCameraMode.bind(this));
 		socket.register('closePopouts', this._closePopouts.bind(this));
 		socket.register('previewCamera', this._previewCamera.bind(this));
-		socket.register('toggleForeground', this._toggleForeground.bind(this));
 		socket.register('toggleNotes', this._toggleNotes.bind(this));
-		socket.register('getForegroundStatus', this._getForegroundStatus.bind(this));
 		socket.register('getNotesStatus', this._getNotesStatus.bind(this));
 		this._socket = socket;
 	}
@@ -1521,7 +1469,6 @@ class StreamView {
 		try {
 			if (game?.user?.isGM) {
 				this._sendGetNotesStatus();
-				this._sendGetForegroundStatus();
 			}
 
 			this._socket.executeForAllGMs('connected', game?.user?.id);
@@ -1531,7 +1478,6 @@ class StreamView {
 			return;
 		}
 
-		Hooks.on('updateToken', () => this.focusUpdate());
 		Hooks.on('targetToken', () => this.focusUpdate());
 		Hooks.on('createMeasuredTemplate', () => this.focusUpdate());
 		Hooks.on('updateMeasuredTemplate', () => this.focusUpdate());
@@ -1584,7 +1530,7 @@ class StreamView {
 		libWrapper.register(
 			'stream-view',
 			'SoundsLayer.prototype.refresh',
-			(_wrapped, ..._args) => {},
+			(_wrapped, ..._args) => { },
 			'OVERRIDE',
 		);
 
@@ -1642,7 +1588,7 @@ class StreamView {
 		if (game.settings.get('stream-view', 'preview-display') !== StreamViewOptions.PreviewDisplay.NEVER) {
 			this._sendCameraPreview({ x, y, scale });
 		}
-		canvas.getLayerByEmbeddedName(CONFIG.AmbientSound.objectClass.name).previewSound({x, y});
+		canvas.getLayerByEmbeddedName(CONFIG.AmbientSound.objectClass.name).previewSound({ x, y });
 		return canvas.animatePan({ x, y, scale, duration });
 	}
 
@@ -1651,22 +1597,24 @@ class StreamView {
 			return;
 		}
 
-		if (this._sceneId !== game.canvas.scene.id) {
-			this._sceneId = game.canvas.scene.id;
-			if (!this._trackedTokens[this._sceneId]) {
-				this._trackedTokens[this._sceneId] = new Set();
-				game.canvas.tokens.placeables.forEach((t) => {
-					if (this._tokenDocumentHasTracking(t.document)) {
-						this._trackedTokens[this._sceneId].add(t.id);
-						this._toggleTokenTrackedIcon(t, true);
-					}
-				});
+		if (this._sceneId === game.canvas.scene.id) {
+			return;
+		}
+
+		this._sceneId = game.canvas.scene.id;
+		if (!this._trackedTokens[this._sceneId]) {
+			this._trackedTokens[this._sceneId] = new Set();
+		}
+		game.canvas.tokens.placeables.forEach((t) => {
+			if (this._tokenDocumentHasTracking(t.document)) {
+				this._trackedTokens[this._sceneId].add(t.id);
+				this._toggleTokenTrackedIcon(t, true);
 			}
-			if (StreamView.isStreamUser) {
-				this.focusUpdate();
-			} else if (game.user.isGM) {
-				StreamView._previewRefresh();
-			}
+		});
+		if (StreamView.isStreamUser) {
+			this.focusUpdate();
+		} else if (game.user.isGM) {
+			StreamView._previewRefresh();
 		}
 	}
 

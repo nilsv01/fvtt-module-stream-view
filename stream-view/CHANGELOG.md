@@ -1,3 +1,38 @@
+# [1.3.0](https://github.com/sPOiDar/fvtt-module-stream-view/compare/v1.2.2...v1.3.0) (2022-10-03)
+
+
+### Bug Fixes
+
+* **controls:** Migrate from deprecated layer activation method for notes ([ab6d08b](https://github.com/sPOiDar/fvtt-module-stream-view/commit/ab6d08b))
+
+
+### Features
+
+* **controls:** Remove foreground toggle ([3accee5](https://github.com/sPOiDar/fvtt-module-stream-view/commit/3accee5))
+
+
+
+
+## [1.2.2](https://github.com/sPOiDar/fvtt-module-stream-view/compare/v1.2.1...v1.2.2) (2022-10-03)
+
+
+### Bug Fixes
+
+* **metadata:** Set verified version to "10" ([1419b3a](https://github.com/sPOiDar/fvtt-module-stream-view/commit/1419b3a))
+
+
+
+
+## [1.2.1](https://github.com/sPOiDar/fvtt-module-stream-view/compare/v1.2.0...v1.2.1) (2022-10-03)
+
+
+### Bug Fixes
+
+* **core:** Correct handling of tracked icon rendering on scene change ([0cde1b0](https://github.com/sPOiDar/fvtt-module-stream-view/commit/0cde1b0)), closes [#36](https://github.com/sPOiDar/fvtt-module-stream-view/issues/36)
+
+
+
+
 # [1.2.0](https://github.com/sPOiDar/fvtt-module-stream-view/compare/v1.1.1...v1.2.0) (2022-09-17)
 
 
